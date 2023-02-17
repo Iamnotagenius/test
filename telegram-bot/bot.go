@@ -2,19 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-)
-
-var (
-	authMutex = sync.Mutex{}
 )
 
 func main() {
@@ -28,12 +24,7 @@ func main() {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
-	cmd := tgbotapi.NewSetMyCommands(
-		tgbotapi.BotCommand{Command: "start", Description: "Initiate authentication sequence"},
-	)
-	if _, err := bot.Request(cmd); err != nil {
-		log.Panic(err)
-	}
+	handlersMap := RegisterCommands(bot, commands...)
 
 	provider, err := oidc.NewProvider(context.Background(), "https://id.itmo.ru/auth/realms/itmo")
 
@@ -46,14 +37,13 @@ func main() {
 	if err != nil {
 		log.Panicf("Error when generating state: %v", err)
 	}
-	sessions := make(map[int64]int64)
+	sessions := make(map[int64]Session)
 	authChan := make(chan int64)
 	http.Handle("/", &AuthHandler{
 		bot:      bot,
 		isuChan:  authChan,
 		provider: provider,
 		config:   oauth2Config,
-		sessions: sessions,
 		state:    state,
 	})
 
@@ -62,36 +52,46 @@ func main() {
 	updates := bot.GetUpdatesChan(u)
 
 	for update := range updates {
-		log.Printf("Sessions: %v", sessions)
-		if msg := update.Message; msg != nil {
-			newMsg := tgbotapi.NewMessage(msg.Chat.ID, "")
-			switch msg.Command() {
-			case "help":
-				newMsg.Text = "I know /help and /hello"
-			case "hello":
-				newMsg.Text = fmt.Sprintf("Hello, %v", msg.From.UserName)
-				break
-			case "start":
-				authURL, err := GetAuthCodeURL(msg.Chat.ID, state)
+		log.Printf("CallbackData: %v", update.CallbackData())
+		if msg := update.Message; msg != nil && msg.Chat.IsPrivate() {
+			session, ok := sessions[msg.Chat.ID]
+			if msg.Command() == "start" || !ok {
+				currentSession, err := Authentication(bot, msg, state, authChan, handlersMap)
 				if err != nil {
-					log.Panicf("Failed to get auth code url: %v", err)
-				}
-
-				bot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Please authenticate with this link %v", authURL)))
-				var isu int64
-				select {
-				case isu = <-authChan:
-				case <-time.After(time.Minute):
-					bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Authentication timed out. Please, try again by issuing /start."))
+					log.Printf("Authentication error: %v", err)
 					continue
 				}
-				bot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Hello with isu number %v. I added you to my database.", isu)))
+				sessions[msg.Chat.ID] = currentSession
+				go currentSession.Handle()
 				continue
-			default:
-				newMsg.Text = "I don't know this"
 			}
 
-			bot.Send(newMsg)
+			session.ChatChannel <- msg
 		}
 	}
+}
+
+func Authentication(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, authChan chan int64, hMap HandlersMap) (Session, error) {
+	authURL, err := GetAuthCodeURL(msg.Chat.ID, state)
+	if err != nil {
+		log.Panicf("Failed to get auth code url: %v", err)
+	}
+
+	bot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Please authenticate with this link %v", authURL)))
+	var isu int64
+	select {
+	case isu = <-authChan:
+	case <-time.After(time.Minute):
+		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Authentication timed out. Please, try again by issuing /start."))
+		return Session{}, errors.New("Authentication timeout")
+	}
+	bot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Hello with isu number %v. I added you to my database.", isu)))
+
+	return Session{
+		ChatID:      msg.Chat.ID,
+		Isu:         isu,
+		ChatChannel: make(chan *tgbotapi.Message),
+		Bot:         bot,
+		Handlers:    hMap,
+	}, nil
 }

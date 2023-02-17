@@ -22,7 +22,6 @@ type AuthHandler struct {
 	isuChan  chan int64
 	config   oauth2.Config
 	provider *oidc.Provider
-	sessions map[int64]int64
 	state    string
 }
 
@@ -120,7 +119,6 @@ func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.sessions[combinedState.ChatID] = claims.Isu
 	h.isuChan <- claims.Isu
 }
 
