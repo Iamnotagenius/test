@@ -1,14 +1,21 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"regexp"
+	"strconv"
+	"strings"
 
+	"github.com/Iamnotagenius/test/db/service"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/olekukonko/tablewriter"
 )
 
+// Command represents a command handled by a bot
 type Command struct {
 	Name        string
 	Description string
@@ -28,12 +35,18 @@ var commands = []Command{
 		Description: "Add or set phone number for the user",
 		Handler:     phoneHandler,
 	},
+	{
+		Name:        "search",
+		Description: "Search users by part or whole name",
+		Handler:     searchHandler,
+	},
 }
 
-func RegisterCommands(bot *tgbotapi.BotAPI, cmds ...Command) HandlersMap {
+// RegisterCommands makes a request to notify about the declared commands
+func RegisterCommands(bot *tgbotapi.BotAPI, cmds ...Command) handlersMap {
 	botCmds := make([]tgbotapi.BotCommand, 0, len(cmds))
 	botCmds = append(botCmds, tgbotapi.BotCommand{Command: "start", Description: "Initiate authentication sequence"})
-	hMap := make(HandlersMap)
+	hMap := make(handlersMap)
 	for _, cmd := range cmds {
 		botCmds = append(botCmds, tgbotapi.BotCommand{Command: cmd.Name, Description: cmd.Description})
 		hMap[cmd.Name] = cmd.Handler
@@ -66,7 +79,45 @@ func phoneHandler(s *Session, msg *tgbotapi.Message) error {
 		return errors.New("Phone format did not match")
 	}
 
-	log.Printf("%v's [%v] phone: %v", msg.From.UserName, s.Isu, phone)
+	user, err := s.DBClient.GetUserById(
+		context.Background(),
+		&service.UserByIdRequest{Id: s.Isu})
+	if err != nil {
+		return err
+	}
+	user.PhoneNumber = &phone
+	s.DBClient.AddOrUpdateUser(context.Background(), user)
+	return nil
+}
 
+func searchHandler(s *Session, msg *tgbotapi.Message) error {
+	stream, err := s.DBClient.SearchUsersByName(context.Background(), &service.SearchByNameRequest{Query: msg.CommandArguments()})
+	if err != nil {
+		return err
+	}
+
+	tableString := &strings.Builder{}
+	table := tablewriter.NewWriter(tableString)
+	table.SetHeader([]string{"ISU", "Name", "Phone number"})
+	for {
+		user, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		phone := user.GetPhoneNumber()
+		if phone == "" {
+			phone = "Unset"
+		}
+		table.Append([]string{
+			strconv.FormatInt(user.GetId(), 10),
+			user.GetName(),
+			phone,
+		})
+	}
+	table.Render()
+	s.SendMessageWithParseMode("<pre>"+tableString.String()+"</pre>", html)
 	return nil
 }

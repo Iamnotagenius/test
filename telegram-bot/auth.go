@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -17,7 +15,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type AuthHandler struct {
+type authHandler struct {
 	bot      *tgbotapi.BotAPI
 	isuChan  chan int64
 	config   oauth2.Config
@@ -25,9 +23,9 @@ type AuthHandler struct {
 	state    string
 }
 
-type State struct {
-	Base   string
-	ChatID int64
+type stateWithChatID struct {
+	base   string
+	chatID int64
 }
 
 const (
@@ -45,30 +43,30 @@ var (
 	}
 )
 
-func NewState(base string, chatID int64) (s State, err error) {
+func newState(base string, chatID int64) (s stateWithChatID, err error) {
 	if len(base) != stateLength {
-		return State{}, errors.New(fmt.Sprintf(
+		return stateWithChatID{}, fmt.Errorf(
 			"Invalid length of base string, should be %v, got %v",
 			stateLength,
-			len(base)))
+			len(base))
 	}
-	s.Base = base
-	s.ChatID = chatID
+	s.base = base
+	s.chatID = chatID
 	return s, nil
 }
 
 // Have to use "state" for chatID because custom parameters don't persist across redirect
-func (s State) Encode() string {
-	return s.Base + strconv.FormatInt(s.ChatID, chatIDEncodingBase)
+func (s stateWithChatID) encode() string {
+	return s.base + strconv.FormatInt(s.chatID, chatIDEncodingBase)
 }
 
-func DecodeState(encoded string, baseLength int) (s State, err error) {
-	s.Base = encoded[:baseLength]
-	s.ChatID, err = strconv.ParseInt(encoded[baseLength:], chatIDEncodingBase, 64)
+func decodeState(encoded string, baseLength int) (s stateWithChatID, err error) {
+	s.base = encoded[:baseLength]
+	s.chatID, err = strconv.ParseInt(encoded[baseLength:], chatIDEncodingBase, 64)
 	return
 }
 
-func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *authHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Println("Handle redirect")
 	if r.URL.Query().Get("code") == "" {
 		w.Header().Set("Content-Type", "text/plain")
@@ -81,26 +79,25 @@ func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Exchange failed: %v", err)
 		return
 	}
-	log.Printf("Access Token: %v", token.AccessToken)
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
 		log.Panicln("Missing token")
 		return
 	}
-	log.Printf("rawIDToken: %v", rawIDToken)
 
-	idToken, err := h.provider.Verifier(&oidc.Config{ClientID: os.Getenv("ITMOID_CLIENT_ID")}).Verify(r.Context(), rawIDToken)
+	idToken, err := h.provider.Verifier(
+		&oidc.Config{ClientID: os.Getenv("ITMOID_CLIENT_ID")}).Verify(r.Context(), rawIDToken)
 	if err != nil {
 		log.Printf("Token parse failed: %v", err)
 		return
 	}
-	combinedState, err := DecodeState(r.URL.Query().Get("state"), len(h.state))
+	combinedState, err := decodeState(r.URL.Query().Get("state"), len(h.state))
 	if err != nil {
 		log.Printf("Error decoding state: %v", err)
 		return
 	}
 
-	if h.state != combinedState.Base {
+	if h.state != combinedState.base {
 		log.Println("States did not match. CSRF attack?")
 		return
 	}
@@ -122,27 +119,8 @@ func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.isuChan <- claims.Isu
 }
 
-func GetAuthCodeURL(chatID int64, state string) (string, error) {
-	ctx := context.Background()
-	provider, err := oidc.NewProvider(ctx, "https://id.itmo.ru/auth/realms/itmo")
-
-	if err != nil {
-		return "", err
-	}
-
-	oauth2Config := oauth2.Config{
-		ClientID:     os.Getenv("ITMOID_CLIENT_ID"),
-		ClientSecret: os.Getenv("ITMOID_CLIENT_SECRET"),
-		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID},
-		RedirectURL:  "http://localhost:8080/",
-	}
-
-	log.Printf("Cilent ID: %v", oauth2Config.ClientID)
-	log.Printf("RedirectURL: %v", oauth2Config.RedirectURL)
-
-	authURL := oauth2Config.AuthCodeURL(State{Base: state, ChatID: chatID}.Encode())
-	return authURL, nil
+func getAuthCodeURL(chatID int64, state string) string {
+	return oauth2Config.AuthCodeURL(stateWithChatID{base: state, chatID: chatID}.encode())
 }
 
 func generateState() (string, error) {
