@@ -1,3 +1,4 @@
+// Database service for telegram bot and REST API
 package main
 
 import (
@@ -6,6 +7,7 @@ import (
 	"net"
 	"os"
 
+	"github.com/Iamnotagenius/test/db/server"
 	"github.com/Iamnotagenius/test/db/service"
 	"github.com/go-pg/pg/v10"
 	"google.golang.org/grpc"
@@ -26,7 +28,7 @@ func main() {
 	}
 	var opts []grpc.ServerOption
 	grpcServer := grpc.NewServer(opts...)
-	service.RegisterDatabaseTestServer(grpcServer, NewDatabaseServer(&pg.Options{
+	service.RegisterDatabaseTestServer(grpcServer, server.NewDatabaseServer(&pg.Options{
 		User:     *dbUser,
 		Addr:     *dbAddr,
 		Password: os.Getenv("POSTGRESQL_PASSWORD"),

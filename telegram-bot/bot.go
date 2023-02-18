@@ -12,6 +12,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Iamnotagenius/test/db/server"
 	"github.com/Iamnotagenius/test/db/service"
 	"github.com/coreos/go-oidc/v3/oidc"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -79,11 +80,20 @@ func main() {
 				currentSession.DBClient = dbClient
 				sessions[msg.Chat.ID] = currentSession
 
-				_, err = dbClient.AddOrUpdateUser(context.Background(), &service.User{
-					Id:   currentSession.Isu,
-					Name: fmt.Sprintf("%v %v (%v)", msg.From.FirstName, msg.From.LastName, msg.From.UserName),
-					Role: service.Role_ROLE_USER,
-				})
+				user, err := dbClient.GetUserByID(context.Background(), &service.UserByIDRequest{Id: currentSession.Isu})
+				if err != nil {
+					if err == server.ErrUserNotFound {
+						user = &service.User{
+							Id:   currentSession.Isu,
+							Name: fmt.Sprintf("%v %v (%v)", msg.From.FirstName, msg.From.LastName, msg.From.UserName),
+							Role: service.Role_ROLE_USER,
+						}
+					} else {
+						log.Printf("Database error: %v", err)
+					}
+				}
+
+				_, err = dbClient.AddOrUpdateUser(context.Background(), user)
 				if err != nil {
 					log.Printf("Error calling db service: %v", err)
 				}

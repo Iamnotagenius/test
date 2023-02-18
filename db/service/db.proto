@@ -6,7 +6,7 @@ option go_package = "github.com/Iamnotagenius/test/db/service";
 
 service DatabaseTest {
     // Retrieve user from database
-    rpc GetUserById (UserByIdRequest) returns (User);
+    rpc GetUserByID (UserByIDRequest) returns (User);
     rpc AddOrUpdateUser (User) returns (UpdateResponse);
     rpc SearchUsersByName (SearchByNameRequest) returns (stream User);
 }
@@ -19,7 +19,7 @@ message User {
 }
 
 // Self descriptive
-message UserByIdRequest {
+message UserByIDRequest {
     int64 id = 1;
 }
 

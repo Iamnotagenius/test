@@ -23,7 +23,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DatabaseTestClient interface {
 	// Retrieve user from database
-	GetUserById(ctx context.Context, in *UserByIdRequest, opts ...grpc.CallOption) (*User, error)
+	GetUserByID(ctx context.Context, in *UserByIDRequest, opts ...grpc.CallOption) (*User, error)
 	AddOrUpdateUser(ctx context.Context, in *User, opts ...grpc.CallOption) (*UpdateResponse, error)
 	SearchUsersByName(ctx context.Context, in *SearchByNameRequest, opts ...grpc.CallOption) (DatabaseTest_SearchUsersByNameClient, error)
 }
@@ -36,9 +36,9 @@ func NewDatabaseTestClient(cc grpc.ClientConnInterface) DatabaseTestClient {
 	return &databaseTestClient{cc}
 }
 
-func (c *databaseTestClient) GetUserById(ctx context.Context, in *UserByIdRequest, opts ...grpc.CallOption) (*User, error) {
+func (c *databaseTestClient) GetUserByID(ctx context.Context, in *UserByIDRequest, opts ...grpc.CallOption) (*User, error) {
 	out := new(User)
-	err := c.cc.Invoke(ctx, "/service.DatabaseTest/GetUserById", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/service.DatabaseTest/GetUserByID", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (x *databaseTestSearchUsersByNameClient) Recv() (*User, error) {
 // for forward compatibility
 type DatabaseTestServer interface {
 	// Retrieve user from database
-	GetUserById(context.Context, *UserByIdRequest) (*User, error)
+	GetUserByID(context.Context, *UserByIDRequest) (*User, error)
 	AddOrUpdateUser(context.Context, *User) (*UpdateResponse, error)
 	SearchUsersByName(*SearchByNameRequest, DatabaseTest_SearchUsersByNameServer) error
 	mustEmbedUnimplementedDatabaseTestServer()
@@ -101,8 +101,8 @@ type DatabaseTestServer interface {
 type UnimplementedDatabaseTestServer struct {
 }
 
-func (UnimplementedDatabaseTestServer) GetUserById(context.Context, *UserByIdRequest) (*User, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetUserById not implemented")
+func (UnimplementedDatabaseTestServer) GetUserByID(context.Context, *UserByIDRequest) (*User, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUserByID not implemented")
 }
 func (UnimplementedDatabaseTestServer) AddOrUpdateUser(context.Context, *User) (*UpdateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddOrUpdateUser not implemented")
@@ -123,20 +123,20 @@ func RegisterDatabaseTestServer(s grpc.ServiceRegistrar, srv DatabaseTestServer)
 	s.RegisterService(&DatabaseTest_ServiceDesc, srv)
 }
 
-func _DatabaseTest_GetUserById_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UserByIdRequest)
+func _DatabaseTest_GetUserByID_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UserByIDRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DatabaseTestServer).GetUserById(ctx, in)
+		return srv.(DatabaseTestServer).GetUserByID(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/service.DatabaseTest/GetUserById",
+		FullMethod: "/service.DatabaseTest/GetUserByID",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DatabaseTestServer).GetUserById(ctx, req.(*UserByIdRequest))
+		return srv.(DatabaseTestServer).GetUserByID(ctx, req.(*UserByIDRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -188,8 +188,8 @@ var DatabaseTest_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*DatabaseTestServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "GetUserById",
-			Handler:    _DatabaseTest_GetUserById_Handler,
+			MethodName: "GetUserByID",
+			Handler:    _DatabaseTest_GetUserByID_Handler,
 		},
 		{
 			MethodName: "AddOrUpdateUser",

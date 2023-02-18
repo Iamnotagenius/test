@@ -79,9 +79,9 @@ func phoneHandler(s *Session, msg *tgbotapi.Message) error {
 		return errors.New("Phone format did not match")
 	}
 
-	user, err := s.DBClient.GetUserById(
+	user, err := s.DBClient.GetUserByID(
 		context.Background(),
-		&service.UserByIdRequest{Id: s.Isu})
+		&service.UserByIDRequest{Id: s.Isu})
 	if err != nil {
 		return err
 	}
