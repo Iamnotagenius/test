@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"log"
 
 	"github.com/Iamnotagenius/test/db/service"
 	"github.com/go-pg/pg/v10"
@@ -42,4 +44,17 @@ func (s *databaseTestServer) GetUserById(ctx context.Context, req *service.UserB
 	}
 
 	return user, nil
+}
+
+func (s *databaseTestServer) SearchUsersByName(req *service.SearchByNameRequest, stream service.DatabaseTest_SearchUsersByNameServer) error {
+	var users []*service.User
+	s.db.Model(&users).Where(fmt.Sprintf("name LIKE '%%%v%%'", req.Query)).Select()
+	for _, user := range users {
+		err := stream.Send(user)
+		if err != nil {
+			log.Printf("Error while executing query: %v", err)
+			return err
+		}
+	}
+	return nil
 }

@@ -22,8 +22,10 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DatabaseTestClient interface {
+	// Retrieve user from database
 	GetUserById(ctx context.Context, in *UserByIdRequest, opts ...grpc.CallOption) (*User, error)
 	AddOrUpdateUser(ctx context.Context, in *User, opts ...grpc.CallOption) (*UpdateResponse, error)
+	SearchUsersByName(ctx context.Context, in *SearchByNameRequest, opts ...grpc.CallOption) (DatabaseTest_SearchUsersByNameClient, error)
 }
 
 type databaseTestClient struct {
@@ -52,12 +54,46 @@ func (c *databaseTestClient) AddOrUpdateUser(ctx context.Context, in *User, opts
 	return out, nil
 }
 
+func (c *databaseTestClient) SearchUsersByName(ctx context.Context, in *SearchByNameRequest, opts ...grpc.CallOption) (DatabaseTest_SearchUsersByNameClient, error) {
+	stream, err := c.cc.NewStream(ctx, &DatabaseTest_ServiceDesc.Streams[0], "/service.DatabaseTest/SearchUsersByName", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &databaseTestSearchUsersByNameClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type DatabaseTest_SearchUsersByNameClient interface {
+	Recv() (*User, error)
+	grpc.ClientStream
+}
+
+type databaseTestSearchUsersByNameClient struct {
+	grpc.ClientStream
+}
+
+func (x *databaseTestSearchUsersByNameClient) Recv() (*User, error) {
+	m := new(User)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // DatabaseTestServer is the server API for DatabaseTest service.
 // All implementations must embed UnimplementedDatabaseTestServer
 // for forward compatibility
 type DatabaseTestServer interface {
+	// Retrieve user from database
 	GetUserById(context.Context, *UserByIdRequest) (*User, error)
 	AddOrUpdateUser(context.Context, *User) (*UpdateResponse, error)
+	SearchUsersByName(*SearchByNameRequest, DatabaseTest_SearchUsersByNameServer) error
 	mustEmbedUnimplementedDatabaseTestServer()
 }
 
@@ -70,6 +106,9 @@ func (UnimplementedDatabaseTestServer) GetUserById(context.Context, *UserByIdReq
 }
 func (UnimplementedDatabaseTestServer) AddOrUpdateUser(context.Context, *User) (*UpdateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddOrUpdateUser not implemented")
+}
+func (UnimplementedDatabaseTestServer) SearchUsersByName(*SearchByNameRequest, DatabaseTest_SearchUsersByNameServer) error {
+	return status.Errorf(codes.Unimplemented, "method SearchUsersByName not implemented")
 }
 func (UnimplementedDatabaseTestServer) mustEmbedUnimplementedDatabaseTestServer() {}
 
@@ -120,6 +159,27 @@ func _DatabaseTest_AddOrUpdateUser_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DatabaseTest_SearchUsersByName_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SearchByNameRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DatabaseTestServer).SearchUsersByName(m, &databaseTestSearchUsersByNameServer{stream})
+}
+
+type DatabaseTest_SearchUsersByNameServer interface {
+	Send(*User) error
+	grpc.ServerStream
+}
+
+type databaseTestSearchUsersByNameServer struct {
+	grpc.ServerStream
+}
+
+func (x *databaseTestSearchUsersByNameServer) Send(m *User) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // DatabaseTest_ServiceDesc is the grpc.ServiceDesc for DatabaseTest service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -136,6 +196,12 @@ var DatabaseTest_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DatabaseTest_AddOrUpdateUser_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SearchUsersByName",
+			Handler:       _DatabaseTest_SearchUsersByName_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "db.proto",
 }
