@@ -12,7 +12,6 @@ import (
 
 	"github.com/Iamnotagenius/test/db/service"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/olekukonko/tablewriter"
 	"google.golang.org/grpc/status"
 )
 
@@ -98,8 +97,6 @@ func searchHandler(s *Session, msg *tgbotapi.Message) error {
 	}
 
 	tableString := &strings.Builder{}
-	table := tablewriter.NewWriter(tableString)
-	table.SetHeader([]string{"ISU", "Name", "Phone number"})
 	for {
 		user, err := stream.Recv()
 		if err == io.EOF {
@@ -112,13 +109,15 @@ func searchHandler(s *Session, msg *tgbotapi.Message) error {
 		if phone == "" {
 			phone = "Unset"
 		}
-		table.Append([]string{
+		tableString.WriteString(fmt.Sprintf("\nISU: %v\nName: %v\nPhone Number: %v",
 			strconv.FormatInt(user.GetId(), 10),
 			user.GetName(),
-			phone,
-		})
+			phone))
 	}
-	table.Render()
-	s.SendMessageWithParseMode("<pre>"+tableString.String()+"</pre>", html)
+	if tableString.Len() == 0 {
+		s.SendMessage("No users found.")
+		return nil
+	}
+	s.SendMessage(tableString.String()[1:])
 	return nil
 }
