@@ -13,6 +13,7 @@ import (
 	"github.com/Iamnotagenius/test/db/service"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/olekukonko/tablewriter"
+	"google.golang.org/grpc/status"
 )
 
 // Command represents a command handled by a bot
@@ -83,7 +84,7 @@ func phoneHandler(s *Session, msg *tgbotapi.Message) error {
 		context.Background(),
 		&service.UserByIDRequest{Id: s.Isu})
 	if err != nil {
-		return err
+		return errors.New(status.Convert(err).Message())
 	}
 	user.PhoneNumber = &phone
 	s.DBClient.AddOrUpdateUser(context.Background(), user)
@@ -93,7 +94,7 @@ func phoneHandler(s *Session, msg *tgbotapi.Message) error {
 func searchHandler(s *Session, msg *tgbotapi.Message) error {
 	stream, err := s.DBClient.SearchUsersByName(context.Background(), &service.SearchByNameRequest{Query: msg.CommandArguments()})
 	if err != nil {
-		return err
+		return errors.New(status.Convert(err).Message())
 	}
 
 	tableString := &strings.Builder{}

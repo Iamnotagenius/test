@@ -11,12 +11,10 @@ import (
 	"strconv"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"golang.org/x/oauth2"
 )
 
 type authHandler struct {
-	bot      *tgbotapi.BotAPI
 	isuChan  chan int64
 	config   oauth2.Config
 	provider *oidc.Provider

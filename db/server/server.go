@@ -3,13 +3,14 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 
 	"github.com/Iamnotagenius/test/db/service"
 	"github.com/go-pg/pg/v10"
 	"github.com/go-pg/pg/v10/orm"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // DatabaseTestServer is gRPC server implementation of database service
@@ -17,9 +18,6 @@ type DatabaseTestServer struct {
 	db *pg.DB
 	service.UnimplementedDatabaseTestServer
 }
-
-// ErrUserNotFound is returned by GetUserByID when user with given ID does not exist
-var ErrUserNotFound = errors.New("User not found")
 
 func initDb(connOpts *pg.Options) (*pg.DB, error) {
 	db := pg.Connect(connOpts)
@@ -53,13 +51,15 @@ func (s *DatabaseTestServer) AddOrUpdateUser(ctx context.Context, user *service.
 	query := s.db.ModelContext(ctx, user).WherePK()
 	if exists, _ := query.Exists(); !exists {
 		_, err := s.db.ModelContext(ctx, user).Insert()
+		log.Printf("Inserted a user: %v", user)
 		if err != nil {
-			return nil, err
+			return nil, status.Error(codes.Internal, err.Error())
 		}
 		return &service.UpdateResponse{}, nil
 	}
 
 	query.Update()
+	log.Printf("Modified a user: %v", user)
 	return &service.UpdateResponse{}, nil
 }
 
@@ -69,9 +69,10 @@ func (s *DatabaseTestServer) GetUserByID(ctx context.Context, req *service.UserB
 	err := s.db.ModelContext(ctx, user).Select()
 	if err != nil {
 		if err == pg.ErrNoRows {
-			return nil, ErrUserNotFound
+			return nil, status.Errorf(codes.NotFound, "User with id %v not found", req.GetId())
 		}
-		return nil, err
+		log.Printf("Error in GetUserByID: %v", err)
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	return user, nil
@@ -85,7 +86,7 @@ func (s *DatabaseTestServer) SearchUsersByName(req *service.SearchByNameRequest,
 		err := stream.Send(user)
 		if err != nil {
 			log.Printf("Error while executing query: %v", err)
-			return err
+			return status.Error(codes.Internal, err.Error())
 		}
 	}
 	return nil

@@ -12,12 +12,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/Iamnotagenius/test/db/server"
 	"github.com/Iamnotagenius/test/db/service"
 	"github.com/coreos/go-oidc/v3/oidc"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -48,7 +49,6 @@ func main() {
 	}
 	authChan := make(chan int64)
 	http.Handle("/", &authHandler{
-		bot:      bot,
 		isuChan:  authChan,
 		provider: provider,
 		config:   oauth2Config,
@@ -67,7 +67,6 @@ func main() {
 	handlersMap := RegisterCommands(bot, commands...)
 	updates := bot.GetUpdatesChan(u)
 	for update := range updates {
-		log.Printf("CallbackData: %v", update.CallbackData())
 		if msg := update.Message; msg != nil && msg.Chat.IsPrivate() {
 			session, ok := sessions[msg.Chat.ID]
 			if msg.Command() == "start" || !ok {
@@ -82,7 +81,8 @@ func main() {
 
 				user, err := dbClient.GetUserByID(context.Background(), &service.UserByIDRequest{Id: currentSession.Isu})
 				if err != nil {
-					if err == server.ErrUserNotFound {
+					log.Printf("Get user error: %v", err)
+					if status.Code(err) == codes.NotFound {
 						user = &service.User{
 							Id:   currentSession.Isu,
 							Name: fmt.Sprintf("%v %v (%v)", msg.From.FirstName, msg.From.LastName, msg.From.UserName),
