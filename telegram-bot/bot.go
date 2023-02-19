@@ -4,21 +4,16 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/Iamnotagenius/test/db/service"
 	"github.com/coreos/go-oidc/v3/oidc"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/status"
 )
 
 var (
@@ -47,85 +42,34 @@ func main() {
 	if err != nil {
 		log.Panicf("Error when generating state: %v", err)
 	}
-	authChan := make(chan int64)
-	http.Handle("/", &authHandler{
-		isuChan:  authChan,
-		provider: provider,
-		config:   oauth2Config,
-		state:    state,
-	})
-	go http.ListenAndServe(":8080", nil)
 
+	sessions := make(map[int64]Session)
 	grpcConn, err := grpc.Dial(*grpcDbServiceAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Panicf("Failed to establish connection with database service: %v", err)
 	}
-	defer grpcConn.Close()
-	dbClient := service.NewDatabaseTestClient(grpcConn)
+	http.Handle("/", &authHandler{
+		sessions:    sessions,
+		provider:    provider,
+		state:       state,
+		handlersMap: RegisterCommands(bot, commands...),
+		dbClient:    service.NewDatabaseTestClient(grpcConn),
+		bot:         bot,
+	})
+	go http.ListenAndServe(":8080", nil)
 
-	sessions := make(map[int64]Session)
-	handlersMap := RegisterCommands(bot, commands...)
+	defer grpcConn.Close()
+
 	updates := bot.GetUpdatesChan(u)
 	for update := range updates {
 		if msg := update.Message; msg != nil && msg.Chat.IsPrivate() {
 			session, ok := sessions[msg.Chat.ID]
 			if msg.Command() == "start" || !ok {
-				currentSession, err := authentication(bot, msg, state, authChan)
-				if err != nil {
-					log.Printf("Authentication error: %v", err)
-					continue
-				}
-				currentSession.Handlers = handlersMap
-				currentSession.DBClient = dbClient
-				sessions[msg.Chat.ID] = currentSession
-
-				user, err := dbClient.GetUserByID(context.Background(), &service.UserByIDRequest{Id: currentSession.Isu})
-				if err != nil {
-					log.Printf("Get user error: %v", err)
-					if status.Code(err) == codes.NotFound {
-						user = &service.User{
-							Id:   currentSession.Isu,
-							Name: fmt.Sprintf("%v %v (%v)", msg.From.FirstName, msg.From.LastName, msg.From.UserName),
-							Role: service.Role_ROLE_USER,
-						}
-					} else {
-						log.Printf("Database error: %v", err)
-					}
-				}
-
-				_, err = dbClient.AddOrUpdateUser(context.Background(), user)
-				if err != nil {
-					log.Printf("Error calling db service: %v", err)
-				}
-
-				go currentSession.Handle()
-
+				authentication(bot, msg, state, msg.From.FirstName, msg.From.LastName)
 				continue
 			}
 
 			session.ChatChannel <- msg
 		}
 	}
-}
-
-func authentication(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, authChan chan int64) (Session, error) {
-	authURL := getAuthCodeURL(msg.Chat.ID, state)
-	msgConfig := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(`Please authenticate with <a href="%v">this link</a>.`, authURL))
-	msgConfig.ParseMode = html
-	bot.Send(msgConfig)
-	var isu int64
-	select {
-	case isu = <-authChan:
-	case <-time.After(time.Minute):
-		bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Authentication timed out. Please, try again by issuing /start."))
-		return Session{}, errors.New("Authentication timeout")
-	}
-	bot.Send(tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Hello with isu number %v. I added you to my database.", isu)))
-
-	return Session{
-		ChatID:      msg.Chat.ID,
-		Isu:         isu,
-		ChatChannel: make(chan *tgbotapi.Message),
-		Bot:         bot,
-	}, nil
 }

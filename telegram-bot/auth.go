@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -9,21 +10,30 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
+	"github.com/Iamnotagenius/test/db/service"
 	"github.com/coreos/go-oidc/v3/oidc"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"golang.org/x/oauth2"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type authHandler struct {
-	isuChan  chan int64
-	config   oauth2.Config
-	provider *oidc.Provider
-	state    string
+	sessions    map[int64]Session
+	provider    *oidc.Provider
+	state       string
+	bot         *tgbotapi.BotAPI
+	handlersMap handlersMap
+	dbClient    service.DatabaseTestClient
 }
 
-type stateWithChatID struct {
-	base   string
-	chatID int64
+type stateWithParams struct {
+	base      string
+	chatID    int64
+	firstName string
+	lastName  string
 }
 
 const (
@@ -41,26 +51,17 @@ var (
 	}
 )
 
-func newState(base string, chatID int64) (s stateWithChatID, err error) {
-	if len(base) != stateLength {
-		return stateWithChatID{}, fmt.Errorf(
-			"Invalid length of base string, should be %v, got %v",
-			stateLength,
-			len(base))
-	}
-	s.base = base
-	s.chatID = chatID
-	return s, nil
-}
-
 // Have to use "state" for chatID because custom parameters don't persist across redirect
-func (s stateWithChatID) encode() string {
-	return s.base + strconv.FormatInt(s.chatID, chatIDEncodingBase)
+func (s stateWithParams) encodeState() string {
+	return s.base + strconv.FormatInt(s.chatID, chatIDEncodingBase) + ":" + s.firstName + ":" + s.lastName
 }
 
-func decodeState(encoded string, baseLength int) (s stateWithChatID, err error) {
+func decodeState(encoded string, baseLength int) (s stateWithParams, err error) {
 	s.base = encoded[:baseLength]
-	s.chatID, err = strconv.ParseInt(encoded[baseLength:], chatIDEncodingBase, 64)
+	rem := strings.Split(encoded[baseLength:], ":")
+	s.chatID, err = strconv.ParseInt(rem[0], chatIDEncodingBase, 64)
+	s.firstName = rem[1]
+	s.lastName = rem[2]
 	return
 }
 
@@ -72,7 +73,7 @@ func (h *authHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.config.Exchange(r.Context(), r.URL.Query().Get("code"))
+	token, err := oauth2Config.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
 		log.Printf("Exchange failed: %v", err)
 		return
@@ -114,11 +115,54 @@ func (h *authHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.isuChan <- claims.Isu
+	currentSession := Session{
+		ChatID:      combinedState.chatID,
+		Isu:         claims.Isu,
+		ChatChannel: make(chan *tgbotapi.Message),
+		Bot:         h.bot,
+	}
+	h.sessions[combinedState.chatID] = currentSession
+	h.bot.Send(tgbotapi.NewMessage(combinedState.chatID, fmt.Sprintf("Hello with isu number %v.", claims.Isu)))
+
+	currentSession.Handlers = h.handlersMap
+	currentSession.DBClient = h.dbClient
+
+	user, err := h.dbClient.GetUserByID(context.Background(), &service.UserByIDRequest{Id: currentSession.Isu})
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			user = &service.User{
+				Id:   currentSession.Isu,
+				Name: fmt.Sprintf("%v %v", combinedState.firstName, combinedState.lastName),
+				Role: service.Role_ROLE_USER,
+			}
+		} else {
+			log.Printf("Database error: %v", err)
+		}
+	}
+
+	_, err = h.dbClient.AddOrUpdateUser(context.Background(), user)
+	if err != nil {
+		log.Printf("Error calling db service: %v", err)
+	}
+
+	go currentSession.Handle()
+
 }
 
-func getAuthCodeURL(chatID int64, state string) string {
-	return oauth2Config.AuthCodeURL(stateWithChatID{base: state, chatID: chatID}.encode())
+func authentication(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, firstName string, lastName string) {
+	authURL := getAuthCodeURL(msg.Chat.ID, state, firstName, lastName)
+	msgConfig := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf(`Please authenticate with <a href="%v">this link</a>.`, authURL))
+	msgConfig.ParseMode = html
+	bot.Send(msgConfig)
+}
+
+func getAuthCodeURL(chatID int64, state string, firstName string, lastName string) string {
+	return oauth2Config.AuthCodeURL(stateWithParams{
+		base:      state,
+		chatID:    chatID,
+		firstName: firstName,
+		lastName:  lastName,
+	}.encodeState())
 }
 
 func generateState() (string, error) {
