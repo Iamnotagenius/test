@@ -66,7 +66,7 @@ func (s *DatabaseTestServer) AddOrUpdateUser(ctx context.Context, user *service.
 // GetUserByID retrieves user from database with given ID
 func (s *DatabaseTestServer) GetUserByID(ctx context.Context, req *service.UserByIDRequest) (*service.User, error) {
 	user := &service.User{Id: req.GetId()}
-	err := s.db.ModelContext(ctx, user).Select()
+	err := s.db.ModelContext(ctx, user).WherePK().Select()
 	if err != nil {
 		if err == pg.ErrNoRows {
 			return nil, status.Errorf(codes.NotFound, "User with id %v not found", req.GetId())
