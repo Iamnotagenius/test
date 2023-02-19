@@ -5,9 +5,13 @@ package service;
 option go_package = "github.com/Iamnotagenius/test/db/service";
 
 service DatabaseTest {
-    // Retrieve user from database
+    // GetUserByID retrieves user from database with given ID
     rpc GetUserByID (UserByIDRequest) returns (User);
+
+    // AddOrUpdateUser adds user to database if user's ID didn't exist, updates fields otherwise
     rpc AddOrUpdateUser (User) returns (UpdateResponse);
+
+    // SearchUsersByName searches users in database by part of a name
     rpc SearchUsersByName (SearchByNameRequest) returns (stream User);
 }
 

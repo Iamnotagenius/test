@@ -22,9 +22,11 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DatabaseTestClient interface {
-	// Retrieve user from database
+	// GetUserByID retrieves user from database with given ID
 	GetUserByID(ctx context.Context, in *UserByIDRequest, opts ...grpc.CallOption) (*User, error)
+	// AddOrUpdateUser adds user to database if user's ID didn't exist, updates fields otherwise
 	AddOrUpdateUser(ctx context.Context, in *User, opts ...grpc.CallOption) (*UpdateResponse, error)
+	// SearchUsersByName searches users in database by part of a name
 	SearchUsersByName(ctx context.Context, in *SearchByNameRequest, opts ...grpc.CallOption) (DatabaseTest_SearchUsersByNameClient, error)
 }
 
@@ -90,9 +92,11 @@ func (x *databaseTestSearchUsersByNameClient) Recv() (*User, error) {
 // All implementations must embed UnimplementedDatabaseTestServer
 // for forward compatibility
 type DatabaseTestServer interface {
-	// Retrieve user from database
+	// GetUserByID retrieves user from database with given ID
 	GetUserByID(context.Context, *UserByIDRequest) (*User, error)
+	// AddOrUpdateUser adds user to database if user's ID didn't exist, updates fields otherwise
 	AddOrUpdateUser(context.Context, *User) (*UpdateResponse, error)
+	// SearchUsersByName searches users in database by part of a name
 	SearchUsersByName(*SearchByNameRequest, DatabaseTest_SearchUsersByNameServer) error
 	mustEmbedUnimplementedDatabaseTestServer()
 }
